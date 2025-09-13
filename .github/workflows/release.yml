@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v3
@@ -18,7 +20,10 @@ jobs:
           python-version: "3.11"
 
       - name: Install deps
-        run: pip install -r requirements.txt pyinstaller
+        run: pip install -r requirements.txt pyinstaller packaging requests
+
+      - name: Build Updater.exe
+        run: pyinstaller Updater.spec --noconfirm
 
       - name: Build app portable
         run: pyinstaller app.spec --noconfirm
@@ -26,11 +31,8 @@ jobs:
       - name: Clean Qt junk
         run: python .github/scripts/cleanup_qt.py
 
-      - name: Install Chromium only
-        run: playwright install chromium
-
-      - name: Copy browsers and 3proxy
-        run: python .github/scripts/copy_internal.py
+      - name: Put Updater.exe next to app
+        run: Copy-Item dist\Updater.exe dist\ProxyWright\Updater.exe
 
       - name: Create portable zip
         run: |
@@ -40,16 +42,36 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup -y
 
+      - name: Prepare version vars
+        shell: pwsh
+        run: |
+          $verTag = "${{ github.ref_name }}"
+          $verNum = $verTag.TrimStart('v','V')
+          "VER_TAG=$verTag"  | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VER_NUM=$verNum"  | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: Build installer with Inno Setup
-        run: iscc installer.iss
+        run: iscc /DAppVersion=${{ env.VER_NUM }} /DTag=${{ env.VER_TAG }} installer.iss
+
+      # SHA256SUMS cho 2 asset
+      - name: Make SHA256SUMS.txt
+        shell: pwsh
+        run: |
+          $items = @("ProxyWright-Portable-${{ env.VER_TAG }}.zip", "output\ProxyWright-Setup-${{ env.VER_TAG }}.exe")
+          Remove-Item -ErrorAction Ignore SHA256SUMS.txt
+          foreach ($f in $items) {
+            $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+            "$h  $f" | Out-File -FilePath SHA256SUMS.txt -Append -Encoding ascii
+          }
 
       - name: Get release notes
         id: notes
+        shell: pwsh
         run: |
           python .github/scripts/get_release_notes.py > notes.md
-          echo "notes<<EOF" >> $GITHUB_ENV
-          cat notes.md >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          "notes<<EOF" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Get-Content notes.md | Out-File -FilePath $env:GITHUB_ENV -Append
+          "EOF" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Upload Release
         uses: softprops/action-gh-release@v1
@@ -57,6 +79,9 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "ProxyWright ${{ github.ref_name }}"
           body: ${{ env.notes }}
+          prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+          fail_on_unmatched_files: true
           files: |
-            ProxyWright-Portable-${{ github.ref_name }}.zip
-            output/ProxyWright-Setup.exe
+            ProxyWright-Portable-${{ env.VER_TAG }}.zip
+            output/ProxyWright-Setup-${{ env.VER_TAG }}.exe
+            SHA256SUMS.txt

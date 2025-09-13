@@ -1,14 +1,20 @@
+from pathlib import Path
 from typing import Optional, Callable
 
 from services.playwright_service import PlaywrightManager
 from services.proxy_service import ProxyManager
-from utils.path_helper import get_app_dir
 
 proxy_manager = ProxyManager()
 
 
-def open_profile_chromium(user_dir: str, proxy: dict | None = None, on_ready: Optional[Callable] = None,
-                          stop_evt=None):
+def open_profile_chromium(user_dir: Path, proxy: dict | None = None, on_ready: Optional[Callable] = None):
+    """
+    Open a Chromium profile using Playwright, with optional proxy support.
+
+    :param user_dir: Path to the user data directory for the Chromium profile
+    :param proxy: Proxy configuration dict (optional)
+    :param on_ready: Callback called with the Playwright context once it is ready
+    """
     from playwright.sync_api import sync_playwright
     from config import DEFAULT_START_URL
     proxy_config = None
@@ -20,6 +26,7 @@ def open_profile_chromium(user_dir: str, proxy: dict | None = None, on_ready: Op
         user, pwd = proxy.get("username"), proxy.get("password")
 
         if scheme == "socks5" and user:
+            # Start local wrapper for authenticated SOCKS5 proxies
             p = proxy_manager.start_socks5_wrapper(
                 proxy_id=proxy["id"], socks_host=host, socks_port=port, username=user, password=pwd or ""
             )
@@ -32,8 +39,7 @@ def open_profile_chromium(user_dir: str, proxy: dict | None = None, on_ready: Op
                 proxy_config["password"] = pwd
 
     try:
-        app_dir = get_app_dir()
-        manager = PlaywrightManager(app_dir)
+        manager = PlaywrightManager()
 
         with sync_playwright() as pw:
             exec_path = manager.get_executable_path("chromium")
@@ -59,18 +65,20 @@ def open_profile_chromium(user_dir: str, proxy: dict | None = None, on_ready: Op
             try:
                 page.goto(DEFAULT_START_URL, wait_until="domcontentloaded", timeout=30000)
             except TimeoutError:
-                print("[browser] start URL timeout, vẫn tiếp tục...")
+                print("[browser] start URL timeout, continue anyway...")
 
             try:
                 ctx.wait_for_event("close", timeout=0)
             except:
                 pass
     except Exception as e:
-        # Gợi ý lỗi thường gặp
+        # Common error hints
         msg = str(e)
         if "ERR_TUNNEL_CONNECTION_FAILED" in msg:
-            raise RuntimeError("Không kết nối được qua proxy (ERR_TUNNEL_CONNECTION_FAILED). "
-                               "Kiểm tra proxy, username/password, hoặc IP whitelist.")
+            raise RuntimeError(
+                "Failed to connect through proxy (ERR_TUNNEL_CONNECTION_FAILED). "
+                "Please check the proxy settings, username/password, or IP whitelist."
+            )
         raise
     finally:
         if started_wrapper and proxy:

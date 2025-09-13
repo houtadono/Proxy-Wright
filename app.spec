@@ -4,7 +4,10 @@ a = Analysis(
     ['app.py'],
     pathex=['.'],
     binaries=[],
-    datas=[],
+    datas = [
+	    ('bin', 'bin'),
+	    ('translations', 'translations'),
+	],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -48,5 +51,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='ProxyWright'
+    name='ProxyWright',
 )

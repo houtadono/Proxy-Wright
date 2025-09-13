@@ -1,10 +1,10 @@
 import sqlite3
-from typing import Any
-from config import DB_PATH
+
+from core.paths import get_database_path
 
 
 def connect():
-    con = sqlite3.connect(DB_PATH)
+    con = sqlite3.connect(get_database_path())
     con.row_factory = sqlite3.Row
     return con
 

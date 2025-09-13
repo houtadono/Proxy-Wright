@@ -1,6 +1,7 @@
 # dev
-browsers
-runtime
+*.ini
+*.pro
+Appdata
 test*.*
 desktop.*
 *.db
