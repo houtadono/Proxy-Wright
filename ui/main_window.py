@@ -1,5 +1,4 @@
 import json
-import os
 import shutil
 
 import psutil
@@ -10,20 +9,23 @@ from PySide6.QtWidgets import (
     QHeaderView
 )
 
-from repo import (
+from config import APP_NAME
+from core.paths import get_profile_data_dir
+from data.repo import (
     list_profiles, get_profile, create_profile, update_profile, delete_profile, get_proxy,
     delete_proxy, list_proxies, create_proxy, update_proxy
 )
 from ui.profile_dialog import ProfileDialog
 from ui.proxy_dialog import ProxyDialog
-from ui.update_tab import UpdateTab
-from workers.browser_worker import BrowserWorker, profile_data_dir
+
+from ui.setting_tab import SettingTab
+from workers.browser_worker import BrowserWorker
 
 
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Proxy Profile Manager (Python)")
+        self.setWindowTitle(APP_NAME)
         self.resize(1000, 620)
         self._apply_qss()
 
@@ -37,8 +39,9 @@ class MainWindow(QWidget):
         # ---- Tab Proxies ----
         self._init_proxies_tab()
 
-        # ---- Tab Update ----
-        self.tabs.addTab(UpdateTab(), "Cập nhật")
+        # ---- Tab Setting ----
+        self.setting_tab = SettingTab()
+        self.tabs.addTab(self.setting_tab, self.tr("Settings"))
 
         self.workers: dict[int, BrowserWorker] = {}
         self.refresh_profiles()
@@ -52,7 +55,6 @@ class MainWindow(QWidget):
         QTableWidget {
             gridline-color:#2a2c31; alternate-background-color:#212329;
         }
-        /* Quan trọng: tự set màu khi hàng/cell được chọn */
         QTableWidget::item:selected { background:#2f3238; color:#ffffff; }
 
         QHeaderView::section {
@@ -63,13 +65,11 @@ class MainWindow(QWidget):
         QPushButton:hover, QToolButton:hover { background:#3a3d44; }
         QPushButton:disabled, QToolButton:disabled { color:#9aa0a6; }
 
-        /* ComboBox hiển thị */
         QComboBox {
             background:#23252b; color:#eaeaea; border:1px solid #343844; border-radius:6px; padding:5px 8px;
         }
         QComboBox:hover, QComboBox:focus { background:#2f3238; border:1px solid #4a90e2; color:#ffffff; }
 
-        /* Danh sách thả xuống */
         QComboBox QAbstractItemView {
             background:#1e1f22; color:#eaeaea;
             selection-background-color:#17601b; selection-color:#ffffff;
@@ -84,13 +84,13 @@ class MainWindow(QWidget):
 
     def _init_profiles_tab(self):
         self.tab_profiles = QWidget()
-        self.tabs.addTab(self.tab_profiles, "Profiles")
+        self.tabs.addTab(self.tab_profiles, self.tr("Profiles"))
         vp = QVBoxLayout(self.tab_profiles)
 
         bar = QHBoxLayout()
-        self.btn_p_add = QPushButton("➕ Thêm profile")
-        self.btn_p_export = QPushButton("⬇️ Export JSON")
-        self.btn_p_import = QPushButton("⬆️ Import JSON")
+        self.btn_p_add = QPushButton(self.tr("➕ Add Profile"))
+        self.btn_p_export = QPushButton(self.tr("⬇️ Export JSON"))
+        self.btn_p_import = QPushButton(self.tr("⬆️ Import JSON"))
         bar.addWidget(self.btn_p_add)
         bar.addStretch(1)
         bar.addWidget(self.btn_p_import)
@@ -98,7 +98,12 @@ class MainWindow(QWidget):
         vp.addLayout(bar)
 
         self.tbl_profiles = QTableWidget(0, 4)
-        self.tbl_profiles.setHorizontalHeaderLabels(["ID", "Tên", "Proxy", "Hành động"])
+        self.tbl_profiles.setHorizontalHeaderLabels([
+            self.tr("ID"),
+            self.tr("Name"),
+            self.tr("Proxy"),
+            self.tr("Actions"),
+        ])
         self.tbl_profiles.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tbl_profiles.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.tbl_profiles.setSortingEnabled(True)
@@ -110,13 +115,13 @@ class MainWindow(QWidget):
 
     def _init_proxies_tab(self):
         self.tab_proxies = QWidget()
-        self.tabs.addTab(self.tab_proxies, "Proxies")
+        self.tabs.addTab(self.tab_proxies, self.tr("Proxies"))
         vq = QVBoxLayout(self.tab_proxies)
 
         bar = QHBoxLayout()
-        self.btn_q_add = QPushButton("➕ Thêm proxy")
-        self.btn_q_export = QPushButton("⬇️ Export JSON")
-        self.btn_q_import = QPushButton("⬆️ Import JSON")
+        self.btn_q_add = QPushButton(self.tr("➕ Add Proxy"))
+        self.btn_q_export = QPushButton(self.tr("⬇️ Export JSON"))
+        self.btn_q_import = QPushButton(self.tr("⬆️ Import JSON"))
         bar.addWidget(self.btn_q_add)
         bar.addStretch(1)
         bar.addWidget(self.btn_q_import)
@@ -124,7 +129,14 @@ class MainWindow(QWidget):
         vq.addLayout(bar)
 
         self.tbl_proxies = QTableWidget(0, 6)
-        self.tbl_proxies.setHorizontalHeaderLabels(["ID", "Tên", "Loại", "Host:Port", "Auth", "Hành động"])
+        self.tbl_proxies.setHorizontalHeaderLabels([
+            self.tr("ID"),
+            self.tr("Name"),
+            self.tr("Type"),
+            self.tr("Host:Port"),
+            self.tr("Auth"),
+            self.tr("Actions"),
+        ])
         self.tbl_proxies.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tbl_proxies.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.tbl_proxies.setSortingEnabled(True)
@@ -137,7 +149,7 @@ class MainWindow(QWidget):
     # ========== Profiles ==========
     def refresh_profiles(self):
         rows = list_profiles()
-        proxies = list_proxies()  # cache 1 lần
+        proxies = list_proxies()
         self.tbl_profiles.setRowCount(0)
         for r in rows:
             self._add_profile_row(r, proxies)
@@ -151,37 +163,38 @@ class MainWindow(QWidget):
         hh = self.tbl_profiles.horizontalHeader()
         hh.setSectionsClickable(True)
         hh.setHighlightSections(False)
-        hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # ID
-        hh.setSectionResizeMode(1, QHeaderView.Stretch)  # Tên (giãn)
-        hh.setSectionResizeMode(2, QHeaderView.Stretch)  # Proxy (giãn)
-        hh.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Hành động
-        # self.tbl_profiles.setColumnWidth(3, 220)
+        hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.Stretch)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeToContents)
 
     def _add_profile_row(self, prof: dict, proxies: list[dict]):
         row_idx = self.tbl_profiles.rowCount()
         self.tbl_profiles.insertRow(row_idx)
 
-        # ID & Name
         it_id = QTableWidgetItem()
-        it_id.setData(Qt.DisplayRole, int(prof["id"]))  # sort số
+        it_id.setData(Qt.DisplayRole, int(prof["id"]))
         self.tbl_profiles.setItem(row_idx, 0, it_id)
         self.tbl_profiles.setItem(row_idx, 1, QTableWidgetItem(prof["name"]))
 
-        # Proxy dropdown
         dd = QComboBox()
         dd.setAttribute(Qt.WA_StyledBackground, True)
         dd.setAutoFillBackground(True)
-        dd.addItem("(Không)", userData=None)
+        dd.addItem(self.tr("(None)"), userData=None)
         for pr in proxies:
-            dd.addItem(f"[{pr['id']}] {pr['name']} — {pr['proxy_type']}://{pr['host']}:{pr['port']}", userData=pr["id"])
+            dd.addItem(
+                f"[{pr['id']}] {pr['name']} — {pr['proxy_type']}://{pr['host']}:{pr['port']}",
+                userData=pr["id"]
+            )
         if prof.get("proxy_id") is not None:
             idx = dd.findData(prof["proxy_id"])
             if idx >= 0:
                 dd.setCurrentIndex(idx)
-        dd.currentIndexChanged.connect(lambda _, pid=prof["id"], combo=dd: self.on_profile_proxy_changed(pid, combo))
+        dd.currentIndexChanged.connect(
+            lambda _, pid=prof["id"], combo=dd: self.on_profile_proxy_changed(pid, combo)
+        )
         self.tbl_profiles.setCellWidget(row_idx, 2, dd)
 
-        # Hành động
         cell = QWidget()
         h = QHBoxLayout(cell)
         h.setContentsMargins(0, 0, 0, 0)
@@ -190,10 +203,10 @@ class MainWindow(QWidget):
         b_toggle.setFixedWidth(60)
         self._style_toggle_btn(b_toggle, running=False)
         b_edit = QToolButton()
-        b_edit.setText("Sửa")
+        b_edit.setText(self.tr("Edit"))
         b_edit.setProperty("pid", prof["id"])
         b_del = QToolButton()
-        b_del.setText("Xoá")
+        b_del.setText(self.tr("Delete"))
         b_del.setProperty("pid", prof["id"])
         for b in (b_toggle, b_edit, b_del): h.addWidget(b)
         h.addStretch(1)
@@ -205,15 +218,16 @@ class MainWindow(QWidget):
 
     def on_profile_proxy_changed(self, pid: int, combo: QComboBox):
         if pid in self.workers:
-            # revert selection
             row = get_profile(pid)
-            cur = combo.currentIndex()
             prev_idx = combo.findData(row.get("proxy_id"))
             if prev_idx >= 0:
                 combo.blockSignals(True)
                 combo.setCurrentIndex(prev_idx)
                 combo.blockSignals(False)
-            QMessageBox.information(self, "Đang chạy", "Đang mở profile, không thể đổi Proxy.")
+            QMessageBox.information(
+                self, self.tr("Running"),
+                self.tr("Profile is running, cannot change Proxy.")
+            )
             return
         row = get_profile(pid)
         if not row: return
@@ -241,11 +255,11 @@ class MainWindow(QWidget):
         if cell:
             for b in cell.findChildren(QToolButton):
                 if b.property("pid") == pid:
-                    if b.objectName() == "toggleBtn" or b.text() in ("Mở", "Đóng"):
+                    if b.objectName() == "toggleBtn" or b.text() in (self.tr("Open"), self.tr("Close")):
                         self._style_toggle_btn(b, running)
-                    elif b.text() in ("Sửa",):
+                    elif b.text() in (self.tr("Edit"),):
                         b.setEnabled(not running)
-                    elif b.text() in ("Xoá",):
+                    elif b.text() in (self.tr("Delete"),):
                         b.setEnabled(not running)
 
         combo = self.tbl_profiles.cellWidget(r, 2)
@@ -258,7 +272,7 @@ class MainWindow(QWidget):
         if dlg.exec():
             payload = dlg.get_payload()
             if not payload["name"]:
-                QMessageBox.warning(self, "Thiếu thông tin", "Tên là bắt buộc.")
+                QMessageBox.warning(self, self.tr("Missing Info"), self.tr("Name is required."))
                 return
             create_profile(payload)
             self.refresh_profiles()
@@ -267,7 +281,7 @@ class MainWindow(QWidget):
         pid = self.sender().property("pid")
         row = get_profile(pid)
         if not row:
-            QMessageBox.warning(self, "Lỗi", "Profile không tồn tại.")
+            QMessageBox.warning(self, self.tr("Error"), self.tr("Profile does not exist."))
             return
         proxies = list_proxies()
         dlg = ProfileDialog(self, data=row, proxies=proxies)
@@ -277,14 +291,14 @@ class MainWindow(QWidget):
 
     def on_profile_delete(self):
         pid = self.sender().property("pid")
-        if QMessageBox.question(self, "Xác nhận", "Xóa profile này?") == QMessageBox.Yes:
+        if QMessageBox.question(self, self.tr("Confirm"), self.tr("Delete this profile?")) == QMessageBox.Yes:
             delete_profile(pid)
             try:
-                dir_path = profile_data_dir(pid)
-                if os.path.exists(dir_path):
+                dir_path = get_profile_data_dir(pid)
+                if dir_path.exists():
                     shutil.rmtree(dir_path, ignore_errors=True)
             except Exception as e:
-                QMessageBox.warning(self, "Lỗi", f"Không xóa được thư mục: {e}")
+                QMessageBox.warning(self, self.tr("Error"), f"{self.tr('Cannot remove folder:')} {e}")
             self.refresh_profiles()
 
     def on_profile_run(self, pid: int | None = None):
@@ -308,7 +322,7 @@ class MainWindow(QWidget):
     def _on_profile_failed(self, pid: int, msg: str):
         self.workers.pop(pid, None)
         self._toggle_run_buttons(pid, False)
-        QMessageBox.critical(self, "Lỗi mở trình duyệt", msg)
+        QMessageBox.critical(self, self.tr("Browser Error"), msg)
 
     def on_profile_stop(self, pid: int | None = None):
         if pid is None:
@@ -356,7 +370,7 @@ class MainWindow(QWidget):
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
         except Exception as e:
-            QMessageBox.warning(self, "Dừng thất bại", str(e))
+            QMessageBox.warning(self, self.tr("Stop Failed"), str(e))
 
     def on_profile_toggle(self):
         pid = self.sender().property("pid")
@@ -369,21 +383,21 @@ class MainWindow(QWidget):
 
     def _style_toggle_btn(self, btn: QToolButton, running: bool):
         btn.setObjectName("toggleBtn")
-        btn.setText("Đóng" if running else "Mở")
+        btn.setText(self.tr("Close") if running else self.tr("Open"))
         btn.setProperty("variant", "danger" if running else "success")
         btn.style().unpolish(btn)
         btn.style().polish(btn)
 
     def on_profile_export(self):
         rows = list_profiles()
-        path, _ = QFileDialog.getSaveFileName(self, "Export profiles", "profiles.json", "JSON (*.json)")
+        path, _ = QFileDialog.getSaveFileName(self, self.tr("Export profiles"), "profiles.json", "JSON (*.json)")
         if not path: return
         with open(path, "w", encoding="utf-8") as f:
             json.dump(rows, f, ensure_ascii=False, indent=2)
-        QMessageBox.information(self, "OK", f"Đã export {len(rows)} profiles.")
+        QMessageBox.information(self, self.tr("OK"), self.tr("Exported {0} profiles.").format(len(rows)))
 
     def on_profile_import(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Import profiles", "", "JSON (*.json)")
+        path, _ = QFileDialog.getOpenFileName(self, self.tr("Import profiles"), "", "JSON (*.json)")
         if not path: return
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -392,12 +406,12 @@ class MainWindow(QWidget):
             for it in items:
                 payload = {"name": (it.get("name") or "").strip(), "proxy_id": it.get("proxy_id")}
                 if payload["name"]:
-                    create_profile(payload);
+                    create_profile(payload)
                     cnt += 1
             self.refresh_profiles()
-            QMessageBox.information(self, "OK", f"Đã import {cnt} profiles.")
+            QMessageBox.information(self, self.tr("OK"), self.tr("Imported {0} profiles.").format(cnt))
         except Exception as e:
-            QMessageBox.critical(self, "Import lỗi", str(e))
+            QMessageBox.critical(self, self.tr("Import Error"), str(e))
 
     # ========== Proxies ==========
     def refresh_proxies(self):
@@ -410,21 +424,22 @@ class MainWindow(QWidget):
             self.tbl_proxies.setItem(i, 1, QTableWidgetItem(r["name"]))
             self.tbl_proxies.setItem(i, 2, QTableWidgetItem(r["proxy_type"]))
             self.tbl_proxies.setItem(i, 3, QTableWidgetItem(f"{r['host']}:{r['port']}"))
-            self.tbl_proxies.setItem(i, 4, QTableWidgetItem("Yes" if r.get("username") else "No"))
+            self.tbl_proxies.setItem(i, 4, QTableWidgetItem(self.tr("Yes") if r.get("username") else self.tr("No")))
 
             cell = QWidget()
             h = QHBoxLayout(cell)
             h.setContentsMargins(0, 0, 0, 0)
             b_test = QToolButton()
-            b_test.setText("Kiểm tra")
+            b_test.setText(self.tr("Test"))
             b_test.setProperty("pid", r["id"])
             b_edit = QToolButton()
-            b_edit.setText("Sửa")
+            b_edit.setText(self.tr("Edit"))
             b_edit.setProperty("pid", r["id"])
             b_del = QToolButton()
-            b_del.setText("Xoá")
+            b_del.setText(self.tr("Delete"))
             b_del.setProperty("pid", r["id"])
-            for b in (b_test, b_edit, b_del): h.addWidget(b)
+            for b in (b_test, b_edit, b_del):
+                h.addWidget(b)
             h.addStretch(1)
             self.tbl_proxies.setCellWidget(i, 5, cell)
 
@@ -445,41 +460,43 @@ class MainWindow(QWidget):
         hq.setHighlightSections(False)
 
         hq.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # ID
-        hq.setSectionResizeMode(1, QHeaderView.Stretch)  # Tên
-        hq.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Loại
-        hq.setSectionResizeMode(3, QHeaderView.Stretch)  # Host:Port
+        hq.setSectionResizeMode(1, QHeaderView.Stretch)           # Name
+        hq.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Type
+        hq.setSectionResizeMode(3, QHeaderView.Stretch)           # Host:Port
         hq.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Auth
-        hq.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Hành động
+        hq.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Actions
 
     def on_proxy_add(self):
         dlg = ProxyDialog(self)
         if dlg.exec():
             payload = dlg.payload()
             if not payload["name"] or not payload["host"]:
-                QMessageBox.warning(self, "Thiếu thông tin", "Tên và Host là bắt buộc.")
+                QMessageBox.warning(self, self.tr("Missing Info"), self.tr("Name and Host are required."))
                 return
-            create_proxy(payload);
-            self.refresh_proxies();
+            create_proxy(payload)
+            self.refresh_proxies()
             self.refresh_profiles()
 
     def on_proxy_edit(self):
         pid = self.sender().property("pid")
         row = get_proxy(pid)
         if not row:
-            QMessageBox.warning(self, "Lỗi", "Proxy không tồn tại.")
+            QMessageBox.warning(self, self.tr("Error"), self.tr("Proxy does not exist."))
             return
         dlg = ProxyDialog(self, data=row)
         if dlg.exec():
             update_proxy(pid, dlg.payload())
-            self.refresh_proxies();
+            self.refresh_proxies()
             self.refresh_profiles()
 
     def on_proxy_delete(self):
         pid = self.sender().property("pid")
-        if QMessageBox.question(self, "Xác nhận",
-                                "Xóa proxy này? (Các profile đang gán sẽ set về Không dùng)") == QMessageBox.Yes:
-            delete_proxy(pid);
-            self.refresh_proxies();
+        if QMessageBox.question(
+            self, self.tr("Confirm"),
+            self.tr("Delete this proxy? (Profiles using it will be reset to None)")
+        ) == QMessageBox.Yes:
+            delete_proxy(pid)
+            self.refresh_proxies()
             self.refresh_profiles()
 
     def on_proxy_test(self):
@@ -487,9 +504,9 @@ class MainWindow(QWidget):
         pid = self.sender().property("pid")
         row = get_proxy(pid)
         if not row:
-            QMessageBox.warning(self, "Lỗi", "Proxy không tồn tại.")
+            QMessageBox.warning(self, self.tr("Error"), self.tr("Proxy does not exist."))
             return
-        self._btn_sender = self.sender();
+        self._btn_sender = self.sender()
         self._btn_sender.setEnabled(False)
         self.tester = ProxyCheckWorker(row)
         self.tester.finished_ok.connect(lambda msg: self._test_ok(msg))
@@ -498,22 +515,22 @@ class MainWindow(QWidget):
 
     def _test_ok(self, msg: str):
         self._btn_sender.setEnabled(True)
-        QMessageBox.information(self, "Proxy OK", msg)
+        QMessageBox.information(self, self.tr("Proxy OK"), msg)
 
     def _test_fail(self, err: str):
         self._btn_sender.setEnabled(True)
-        QMessageBox.critical(self, "Proxy lỗi", err)
+        QMessageBox.critical(self, self.tr("Proxy Error"), err)
 
     def on_proxy_export(self):
         rows = list_proxies()
-        path, _ = QFileDialog.getSaveFileName(self, "Export proxies", "proxies.json", "JSON (*.json)")
+        path, _ = QFileDialog.getSaveFileName(self, self.tr("Export proxies"), "proxies.json", "JSON (*.json)")
         if not path: return
         with open(path, "w", encoding="utf-8") as f:
             json.dump(rows, f, ensure_ascii=False, indent=2)
-        QMessageBox.information(self, "OK", f"Đã export {len(rows)} proxies.")
+        QMessageBox.information(self, self.tr("OK"), self.tr("Exported {0} proxies.").format(len(rows)))
 
     def on_proxy_import(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Import proxies", "", "JSON (*.json)")
+        path, _ = QFileDialog.getOpenFileName(self, self.tr("Import proxies"), "", "JSON (*.json)")
         if not path: return
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -529,23 +546,23 @@ class MainWindow(QWidget):
                     "password": it.get("password"),
                 }
                 if payload["name"] and payload["host"]:
-                    create_proxy(payload);
+                    create_proxy(payload)
                     cnt += 1
-            self.refresh_proxies();
+            self.refresh_proxies()
             self.refresh_profiles()
-            QMessageBox.information(self, "OK", f"Đã import {cnt} proxies.")
+            QMessageBox.information(self, self.tr("OK"), self.tr("Imported {0} proxies.").format(cnt))
         except Exception as e:
-            QMessageBox.critical(self, "Import lỗi", str(e))
+            QMessageBox.critical(self, self.tr("Import Error"), str(e))
 
     def closeEvent(self, e):
-        # stop all browser workers (đóng Chromium để ghi cookie/history)
+        # stop all browser workers
         for pid, w in list(self.workers.items()):
             try:
                 if hasattr(w, "stop"):
                     w.stop()
             except Exception:
                 pass
-        # dọn 3proxy wrappers còn sống
+        # cleanup proxy wrappers
         try:
             from services.proxy_service import ProxyManager
             ProxyManager.stop_all()

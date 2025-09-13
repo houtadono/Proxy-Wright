@@ -5,26 +5,26 @@ from PySide6.QtWidgets import QDialog, QFormLayout, QLineEdit, QComboBox, QHBoxL
 class ProfileDialog(QDialog):
     def __init__(self, parent=None, data: Optional[dict] = None, proxies: list[dict] = []):
         super().__init__(parent)
-        self.setWindowTitle("Profile")
+        self.setWindowTitle(self.tr("Create Profile"))
         self.setModal(True)
         self.setMinimumWidth(420)
 
         layout = QFormLayout(self)
         self.name = QLineEdit()
-        self.proxy_select = QComboBox();
-        self.proxy_select.addItem("(Không dùng)", userData=None)
+        self.proxy_select = QComboBox()
+        self.proxy_select.addItem(self.tr("(None)"), userData=None)
         for pr in proxies:
             label = f"[{pr['id']}] {pr['name']} — {pr['proxy_type']}://{pr['host']}:{pr['port']}" + (
                 " (auth)" if pr.get('username') else "")
             self.proxy_select.addItem(label, userData=pr['id'])
 
-        layout.addRow("Tên", self.name)
-        layout.addRow("Proxy", self.proxy_select)
+        layout.addRow(self.tr("Name"), self.name)
+        layout.addRow(self.tr("Proxy"), self.proxy_select)
 
         btns = QHBoxLayout()
-        self.btn_ok = QPushButton("Lưu");
-        self.btn_cancel = QPushButton("Hủy")
-        btns.addWidget(self.btn_cancel);
+        self.btn_ok = QPushButton(self.tr("Save"))
+        self.btn_cancel = QPushButton(self.tr("Cancel"))
+        btns.addWidget(self.btn_cancel)
         btns.addWidget(self.btn_ok)
         layout.addRow(btns)
 

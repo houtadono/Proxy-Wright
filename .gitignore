@@ -1,9 +1,11 @@
 # dev
-browsers
-runtime
+*.ini
+*.pro
+Appdata
 test*.*
 desktop.*
 *.db
+test
 # Python
 __pycache__/
 *.py[cod]

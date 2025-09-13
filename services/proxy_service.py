@@ -6,31 +6,24 @@ import time
 
 import psutil
 
-from utils.path_helper import get_app_dir
+from core.paths import get_user_data_path, BIN_DIR
 
 
 class ProxyManager:
-    def __init__(self, bin_path: str = None):
-        self.app_dir = get_app_dir()
-        self.bin_path = bin_path or os.path.join(self.app_dir, "bin", "3proxy.exe")
-        if not os.path.exists(self.bin_path):
+    def __init__(self):
+        self.bin_path = BIN_DIR/"3proxy.exe"
+        if not self.bin_path.exists():
             raise FileNotFoundError(f"3proxy not found: {self.bin_path}")
 
-        self.runtime_dir = os.path.join(self.app_dir, "runtime", "3proxy")
-        try:
-            os.makedirs(self.runtime_dir, exist_ok=True)
-        except Exception:
-            from appdirs import user_data_dir
-            from config import APP_NAME, ORG_NAME
-            self.runtime_dir = os.path.join(user_data_dir(APP_NAME, ORG_NAME), "runtime", "3proxy")
-            os.makedirs(self.runtime_dir, exist_ok=True)
+        self.runtime_proxy_dir = get_user_data_path() / "runtime" / "3proxy"
+        self.runtime_proxy_dir.mkdir(parents=True, exist_ok=True)
 
         self.processes: dict[int, tuple[subprocess.Popen, str, int]] = {}
         self._cleanup_startup()
 
     def _cleanup_startup(self):
-        """Kill 3proxy còn sống dùng cfg trong runtime_dir và xoá tất cả .cfg mồ côi."""
-        # 1) kill mọi 3proxy có cmdline chứa runtime_dir
+        """Kill 3proxy còn sống dùng cfg trong runtime_proxy_dir và xoá tất cả .cfg."""
+        # 1) kill mọi 3proxy có cmdline chứa runtime_proxy_dir
         try:
             for p in psutil.process_iter(["pid", "name", "cmdline"]):
                 try:
@@ -38,7 +31,7 @@ class ProxyManager:
                     if "3proxy" not in nm:
                         continue
                     cmd = " ".join(p.info["cmdline"] or [])
-                    if self.runtime_dir in cmd:
+                    if str(self.runtime_proxy_dir )in cmd:
                         try:
                             p.terminate()
                             p.wait(timeout=2)
@@ -52,14 +45,13 @@ class ProxyManager:
         except Exception:
             pass
 
-        # 2) xoá tất cả cfg còn lại trong runtime_dir
+        # 2) xoá tất cả cfg còn lại trong runtime_proxy_dir
         try:
-            for fn in os.listdir(self.runtime_dir):
-                if fn.endswith(".cfg"):
-                    try:
-                        os.remove(os.path.join(self.runtime_dir, fn))
-                    except Exception:
-                        pass
+            for cfg_file in self.runtime_proxy_dir.glob("*.cfg"):
+                try:
+                    cfg_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -83,7 +75,7 @@ parent 1000 socks5+ {socks_host} {socks_port} {username} {password}
 socks -p{local_port} -i127.0.0.1
 """
         cfg_file = tempfile.NamedTemporaryFile(delete=False, suffix=".cfg")
-        cfg_file.write(cfg_content.encode("utf-8"));
+        cfg_file.write(cfg_content.encode("utf-8"))
         cfg_file.close()
 
         proc = subprocess.Popen(

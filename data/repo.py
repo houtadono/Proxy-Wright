@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from db import connect
+from .db import connect
 
 # ---------- PROXIES ----------
 

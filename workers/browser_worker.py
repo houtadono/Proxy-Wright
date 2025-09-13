@@ -1,19 +1,6 @@
-import os
-import re
-import time
-
-import psutil
 from PySide6.QtCore import QThread, Signal, Qt
-from appdirs import user_data_dir
 
-from config import APP_NAME, ORG_NAME
-
-
-def profile_data_dir(profile_id: int) -> str:
-    base = user_data_dir(APP_NAME, ORG_NAME)
-    path = os.path.join(base, "profiles", str(profile_id))
-    os.makedirs(path, exist_ok=True)
-    return path
+from core.paths import get_profile_data_dir
 
 
 class BrowserWorker(QThread):
@@ -37,7 +24,7 @@ class BrowserWorker(QThread):
 
     def run(self):
         try:
-            user_dir = profile_data_dir(self.profile_id)
+            user_dir = get_profile_data_dir(self.profile_id)
 
             from services.browser_service import open_profile_chromium
             def _on_ready(ctx):
@@ -48,46 +35,5 @@ class BrowserWorker(QThread):
         except Exception as e:
             self.failed.emit(str(e))
 
-    def _profile_dir_norm(self) -> str:
-        base = user_data_dir(APP_NAME, ORG_NAME)
-        target = os.path.abspath(os.path.join(base, "profiles", str(self.profile_id)))
-        return os.path.normcase(os.path.normpath(target))
-
-    def _match_profile_proc(self, p) -> bool:
-        try:
-            nm = (p.info["name"] or "").lower()
-            if not any(k in nm for k in ("chrome", "chromium", "msedge")):
-                return False
-            cmd = p.info["cmdline"] or []
-            joined = " ".join(cmd)
-            m = re.search(r'--user-data-dir(?:=|\s+)(?:"([^"]+)"|(\S+))', joined, re.I)
-            if not m: return False
-            proc_dir = m.group(1) or m.group(2)
-            proc_norm = os.path.normcase(os.path.normpath(os.path.abspath(proc_dir)))
-            return proc_norm == self._profile_dir_norm()
-        except Exception:
-            return False
-
     def _on_request_force_kill(self):
-        # Chạy sau khi đã thử close/WM_CLOSE mà vẫn còn
-        # terminate -> kill
-        time.sleep(0.3)
-        for p in psutil.process_iter(["name", "cmdline"]):
-            try:
-                if self._match_profile_proc(p):
-                    try:
-                        p.terminate()
-                    except Exception:
-                        pass
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-        time.sleep(0.5)
-        for p in psutil.process_iter(["name", "cmdline"]):
-            try:
-                if self._match_profile_proc(p) and p.is_running():
-                    try:
-                        p.kill()
-                    except Exception:
-                        pass
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
+        pass

@@ -7,6 +7,10 @@ changelog = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
 pattern = rf"## \[{re.escape(version)}\][\s\S]*?(?=## \[|$)"
 match = re.search(pattern, changelog)
 if not match:
-    print(f"## {version}\n(No changelog found)")
+    text = f"## {version}\n(No changelog found)"
 else:
-    print(match.group(0).strip())
+    text = match.group(0).strip()
+
+# ✅ ép stdout sang UTF-8
+sys.stdout.reconfigure(encoding="utf-8")
+print(text)
