@@ -1,0 +1,62 @@
+name: Release App
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install -r requirements.txt pyinstaller playwright
+
+      - name: Build app portable
+        run: pyinstaller app.spec --noconfirm
+
+      - name: Clean Qt junk
+        run: python .github/scripts/cleanup_qt.py
+
+      - name: Install Chromium only
+        run: playwright install chromium
+
+      - name: Copy browsers and 3proxy
+        run: python .github/scripts/copy_internal.py
+
+      - name: Create portable zip
+        run: |
+          cd dist
+          powershell Compress-Archive -Path ProxyWright -DestinationPath ../ProxyWright-Portable-${{ github.ref_name }}.zip
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Build installer with Inno Setup
+        run: iscc installer.iss
+
+      - name: Get release notes
+        id: notes
+        run: |
+          python .github/scripts/get_release_notes.py > notes.md
+          echo "notes<<EOF" >> $GITHUB_ENV
+          cat notes.md >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "ProxyWright ${{ github.ref_name }}"
+          body: ${{ env.notes }}
+          files: |
+            ProxyWright-Portable-${{ github.ref_name }}.zip
+            output/ProxyWright-Setup.exe
