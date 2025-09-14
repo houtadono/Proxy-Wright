@@ -49,6 +49,20 @@ jobs:
           $verNum = $verTag.TrimStart('v','V')
           "VER_TAG=$verTag"  | Out-File -FilePath $env:GITHUB_ENV -Append
           "VER_NUM=$verNum"  | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Provide Vietnamese.isl for Inno Setup
+        shell: pwsh
+        run: |
+          $dest = "assets\innosetup"
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          $url  = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/Vietnamese.isl"
+          try {
+            Invoke-WebRequest -Uri $url -OutFile "$dest\Vietnamese.isl" -MaximumRedirection 5 -UseBasicParsing
+          } catch {
+            curl.exe -L $url -o "$dest\Vietnamese.isl"
+          }
+          if (!(Test-Path "$dest\Vietnamese.isl") -or ((Get-Item "$dest\Vietnamese.isl").Length -lt 10000)) {
+            throw "Download Vietnamese.isl failed"
+          }
 
       - name: Build installer with Inno Setup
         run: iscc /DAppVersion=${{ env.VER_NUM }} /DTag=${{ env.VER_TAG }} installer.iss

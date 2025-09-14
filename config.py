@@ -4,7 +4,7 @@ DB_NAME = "profiles.db"
 DEFAULT_START_URL = "https://api.ipify.org/"
 PROXY_TEST_URL = "https://api.ipify.org?format=json"
 PROXY_TEST_TIMEOUT = 6
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 APP_UPDATE_URL = "https://api.github.com/repos/houtadono/Proxy-Wright/releases"
 REPO_WEB_URL = "https://github.com/houtadono/Proxy-Wright/releases"
 SUPPORTED_BROWSERS = ["chromium"]
